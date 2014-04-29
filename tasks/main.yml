@@ -1,0 +1,44 @@
+---
+# tasks file for mysql-replication-master
+- name: Install required packages
+  apt:
+    pkg="{{ item }}"
+  with_items:
+    - python-mysqldb
+
+- shell: service mysql status
+  register: serverstatus
+  ignore_errors: yes
+
+- name: Determine cluster master
+  set_fact:
+    is_cluster_master="{{ serverstatus.rc == 0 }}"
+
+- name: Enable binary logging
+  lineinfile:
+    dest=/etc/mysql/my.cnf
+    insertafter="\[mysqld\]"
+    line="{{ item }}"
+    state=present
+  with_items:
+    - "innodb_flush_log_at_trx_commit=1"
+    - "sync_binlog=1"
+    - "server-id=1"
+    - "log-bin=/data/mysql/mysql-bin"
+
+- name: Restart mysql
+  service:
+    name=mysql
+    state=restarted
+  when: is_cluster_master
+
+- name: Create replication user
+  mysql_user:
+    login_user="{{ master_user }}"
+    login_password="{{ master_password }}"
+    name="{{ replication_user }}"
+    password="{{ replication_password }}"
+    priv="*.*:REPLICATION SLAVE,REPLICATION CLIENT/mysql.*:SELECT"
+    host="%"
+    state=present
+  when: is_cluster_master
